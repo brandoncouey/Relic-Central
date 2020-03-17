@@ -11,6 +11,7 @@ public class ProxySession extends Session {
 
     /**
      * Represents the Proxy Token
+     * This token is used to Identify the Incoming server as a Proxy.
      */
     public static final String PROXY_TOKEN = "121d9746-efdd-4b73-9af0-151b02160270";
 

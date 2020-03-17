@@ -12,13 +12,13 @@ import com.shattered.networking.session.Session;
 import com.shattered.networking.session.ext.ChannelSession;
 import com.shattered.networking.session.ext.RealmSession;
 import com.shattered.networking.session.ext.WorldSession;
-import com.shattered.connections.ServerConnections;
+import com.shattered.service.ServiceConnections;
 import com.shattered.connections.ServerType;
-import com.shattered.connections.ShatteredServer;
+import com.shattered.service.ServerService;
 import com.shattered.connections.WorldListEntry;
 import com.shattered.sessions.ProxySession;
 import com.shattered.system.SystemLogger;
-import com.shattered.threads.ServerResponding;
+import com.shattered.threads.ServerTimeoutListener;
 import io.netty.channel.ChannelFuture;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -42,7 +42,7 @@ public class BuildCentral extends Build {
     /**
      * Represents the Server Responding Thread
      */
-    private ServerResponding serverResponding;
+    private ServerTimeoutListener serverTimeoutListener;
 
 
     /**
@@ -55,8 +55,8 @@ public class BuildCentral extends Build {
         getInstance().build(ServerType.CENTRAL, "0.0.0.0", ServerConstants.CENTRAL_DEFAULT_PORT);
 
         //Starts the Server Responder
-        getInstance().setServerResponding(new ServerResponding());
-        getInstance().getServerResponding().start();
+        getInstance().setServerTimeoutListener(new ServerTimeoutListener());
+        getInstance().getServerTimeoutListener().start();
 
     }
 
@@ -73,6 +73,7 @@ public class BuildCentral extends Build {
     @Override
     public void invoke(ChannelFuture channelFuture) {
 
+
         /* ------------------------ Registers Server Connections Listeners ------------------------ */
         ProtoEventListener.registerListener(PacketOuterClass.Opcode.S_Register, new ProtoListener<Sharding.RegisterServer>() {
             @Override
@@ -82,11 +83,13 @@ public class BuildCentral extends Build {
                     /* Proxy Connection */
                     case ProxySession.PROXY_TOKEN: {
                         //Avoids duplicated server connections
-                        if (ServerConnections.forUUID(message.getCuuid()) != null)
+                        if (ServiceConnections.forUUID(message.getCuuid()) != null) {
+                            session.disconnect();
                             return;
+                        }
 
                         ProxySession proxySess = new ProxySession(session.getChannel());
-                        ServerConnections.registerServer(message.getCuuid(), ServerType.PROXY, proxySess);
+                        ServiceConnections.registerService(message.getCuuid(), ServerType.PROXY, proxySess);
                         session.getChannel().attr(getNetwork().getNetworkHandler().getSessionKey()).set(proxySess);
                         SystemLogger.sendSystemMessage("S_Register -> Registered Proxy, ConnId=" + message.getCuuid());
                         break;
@@ -96,11 +99,13 @@ public class BuildCentral extends Build {
                     case RealmSession.REALM_TOKEN: {
 
                         //Avoids duplicated server connections
-                        if (ServerConnections.forUUID(message.getCuuid()) != null)
+                        if (ServiceConnections.forUUID(message.getCuuid()) != null) {
+                            session.disconnect();
                             return;
+                        }
 
                         RealmSession realmSession = new RealmSession(session.getChannel(), message.getCuuid());
-                        ServerConnections.registerServer(message.getCuuid(), ServerType.REALM, realmSession);
+                        ServiceConnections.registerService(message.getCuuid(), ServerType.REALM, realmSession);
                         session.getChannel().attr(getNetwork().getNetworkHandler().getSessionKey()).set(realmSession);
                         SystemLogger.sendSystemMessage("S_Register -> Registered Realm, ConnId=" + message.getCuuid());
                         break;
@@ -110,10 +115,13 @@ public class BuildCentral extends Build {
                     case WorldSession.WORLD_TOKEN: {
 
                         //Avoids duplicated server connections
-                        if (ServerConnections.forUUID(message.getCuuid()) != null) return;
+                        if (ServiceConnections.forUUID(message.getCuuid()) != null) {
+                            session.disconnect();
+                            return;
+                        }
 
                         WorldSession worldSession = new WorldSession(session.getChannel(), message.getCuuid());
-                        ServerConnections.registerServer(message.getCuuid(), ServerType.WORLD, worldSession);
+                        ServiceConnections.registerService(message.getCuuid(), ServerType.WORLD, worldSession);
                         session.getChannel().attr(getNetwork().getNetworkHandler().getSessionKey()).set(worldSession);
                         SystemLogger.sendSystemMessage("S_Register -> Registered World, ConnId=" + message.getCuuid());
                         break;
@@ -121,10 +129,13 @@ public class BuildCentral extends Build {
                     /* Channel Connection */
                     case ChannelSession.CHANNEL_TOKEN: {
                         //Avoids duplicated server connections
-                        if (ServerConnections.forUUID(message.getCuuid()) != null) return;
+                        if (ServiceConnections.forUUID(message.getCuuid()) != null) {
+                            session.disconnect();
+                            return;
+                        }
 
                         ChannelSession channelSession = new ChannelSession(session.getChannel(), message.getCuuid());
-                        ServerConnections.registerServer(message.getCuuid(), ServerType.CHANNEL, channelSession);
+                        ServiceConnections.registerService(message.getCuuid(), ServerType.CHANNEL, channelSession);
                         session.getChannel().attr(getNetwork().getNetworkHandler().getSessionKey()).set(channelSession);
                         SystemLogger.sendSystemMessage("S_Register -> Registered Channel, ConnId=" + message.getCuuid());
                         break;
@@ -151,12 +162,12 @@ public class BuildCentral extends Build {
             public void handle(Proxy.RequestRealm message, Session session)  {
 
                 //Ensures the cuuid is registered
-                if (ServerConnections.forUUID(message.getCuuid()) == null) {
+                if (ServiceConnections.forUUID(message.getCuuid()) == null) {
                     SystemLogger.sendSystemErrMessage("P_RequestRealm -> Unregistered Cuuid=" + message.getCuuid());
                     return;
                 }
 
-                ShatteredServer realmServer = ServerConnections.getServerForType(ServerType.REALM);
+                ServerService realmServer = ServiceConnections.getServerForType(ServerType.REALM);
                 if (realmServer != null) {
                     //Ensures the Address is set.
                     if (realmServer.getAddress() == null) return;
@@ -171,21 +182,25 @@ public class BuildCentral extends Build {
         }, Proxy.RequestRealm.getDefaultInstance());
 
 
-
-        //Registers Ping
+        /*
+         * This Registers the S_Unregister ProtoMessage for the unregistering of ServerServices.
+         */
         ProtoEventListener.registerListener(PacketOuterClass.Opcode.S_Unregister, new ProtoListener<Sharding.UnregisterServer>() {
             @Override
             public void handle(Sharding.UnregisterServer message, Session session) {
-                ServerConnections.unregisterServer(message.getCuuid());
+                ServiceConnections.unregister(message.getCuuid());
             }
         }, Sharding.UnregisterServer.getDefaultInstance());
 
-        //Registers Ping
+
+        /*
+         * This registers the U_Ping for keeping the servers alive.
+         */
         ProtoEventListener.registerListener(PacketOuterClass.Opcode.U_Ping, new ProtoListener<Universal.Ping>() {
 
             @Override
             public void handle(Universal.Ping message, Session session) {
-                ShatteredServer server = ServerConnections.forUUID(message.getCuuid());
+                ServerService server = ServiceConnections.forUUID(message.getCuuid());
                 if (server == null) {
                     session.getChannel().disconnect();
                     SystemLogger.sendSystemErrMessage("U_Ping -> Unauthenticated Connection.");
@@ -199,11 +214,13 @@ public class BuildCentral extends Build {
 
 
 
-        /* ------------------------ Registers Connection Info Listener ------------------------ */
+        /*
+         * This registers the S_ConnectionInfo which is used for the Server Service to register it's current Host/Port.
+         */
         ProtoEventListener.registerListener(PacketOuterClass.Opcode.S_ConnectionInfo, new ProtoListener<Sharding.ConnectionInfo>() {
             @Override
             public void handle(Sharding.ConnectionInfo message, Session session)  {
-                ShatteredServer server = ServerConnections.forUUID(message.getCuuid());
+                ServerService server = ServiceConnections.forUUID(message.getCuuid());
                 if (server != null) {
                     server.setAddress(new InetSocketAddress(message.getHost(), message.getPort()));
                     SystemLogger.sendSystemMessage("S_ConnectionInfo -> Type=" + server.getServerType().name() + ", Host=" + server.getAddress().toString());
@@ -213,7 +230,7 @@ public class BuildCentral extends Build {
                         Sharding.UpdateWorldList.Builder builder = Sharding.UpdateWorldList.newBuilder();
 
                         //Loops through the worlds and appends them
-                        for (WorldListEntry entry : ServerConnections.getWorldListEntries().values()) {
+                        for (WorldListEntry entry : ServiceConnections.getWorldListEntries().values()) {
                             if (entry == null) continue;
                             builder.addEntry(Sharding.UpdateWorldList.Entry.newBuilder().setConnUuid(entry.getConnectionUuid()).setIndex(entry.getId())
                                     .setHost(entry.getSocket().getHostName()).setPort(entry.getSocket().getPort()).setName(entry.getName())
@@ -238,9 +255,9 @@ public class BuildCentral extends Build {
              */
             @Override
             public void handle(Sharding.WorldInformation message, Session session) {
-                ShatteredServer server = ServerConnections.forUUID(message.getCuuid());
+                ServerService server = ServiceConnections.forUUID(message.getCuuid());
                 if (server != null) {
-                    ServerConnections.registerWorld(new WorldListEntry(message.getCuuid(), message.getIndex(), message.getName(), message.getLocation(), message.getType(), message.getPopulation(), server.getAddress()));
+                    ServiceConnections.registerService(new WorldListEntry(message.getCuuid(), message.getIndex(), message.getName(), message.getLocation(), message.getType(), message.getPopulation(), server.getAddress()));
                 }
             }
         }, Sharding.WorldInformation.getDefaultInstance());
@@ -262,7 +279,7 @@ public class BuildCentral extends Build {
                 switch (message.getToken()) {
 
                     case ChannelSession.CHANNEL_TOKEN: {
-                        ShatteredServer server = ServerConnections.getServerForType(ServerType.CHANNEL);
+                        ServerService server = ServiceConnections.getServerForType(ServerType.CHANNEL);
                         if (server != null) {
                             if (server.getAddress() != null) {
                                 session.sendMessage(PacketOuterClass.Opcode.S_OpenConnection, Sharding.ConnectionInfo.newBuilder().setCuuid(server.getCuuid())
