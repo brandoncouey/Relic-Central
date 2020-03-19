@@ -59,6 +59,8 @@ public class BuildCentral extends Build {
         //Sets the Constants to Live.
         ServerConstants.LIVE = Boolean.parseBoolean(args[0]);
 
+        SystemLogger.sendSystemMessage("Building Relic-Central on " + (ServerConstants.LIVE ? "LIVE" : "LOCAL") + " network.");
+
         //TODO assign ip-port to bind via args
         getInstance().build(ServerType.CENTRAL, "0.0.0.0", ServerConstants.CENTRAL_DEFAULT_PORT);
 
