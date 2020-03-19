@@ -51,6 +51,14 @@ public class BuildCentral extends Build {
      */
     public static void main(String[] args) {
 
+        if (args.length < 1) {
+            SystemLogger.sendSystemErrMessage("Unsupported Arguments! Current Args: " + args.length + ", Expected: (live)");
+            return;
+        }
+
+        //Sets the Constants to Live.
+        ServerConstants.LIVE = Boolean.parseBoolean(args[0]);
+
         //TODO assign ip-port to bind via args
         getInstance().build(ServerType.CENTRAL, "0.0.0.0", ServerConstants.CENTRAL_DEFAULT_PORT);
 
