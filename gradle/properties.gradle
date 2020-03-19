@@ -5,4 +5,5 @@ ext {
     nettyVersion = '4.1.27.Final'
     reflectionsVersion = '0.9.11'
     commonsIoVersion = '2.4'
+    coreVersion = '4375af3ead'
 }
